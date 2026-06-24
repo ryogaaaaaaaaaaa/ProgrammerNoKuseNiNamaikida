@@ -6,6 +6,7 @@ const MAX_DAY = 7
 const START_INTEGRITY = 38
 const SAVE_PATH = "user://memory_garden_meta.cfg"
 const TITLE_ART_PATH = "res://assets/title_memory_garden.png"
+const UI_FONT_PATH = "res://assets/fonts/DotGothic16-Regular.ttf"
 const CORE_POS = Vector2i(4, 8)
 const ENTRANCES = [Vector2i(2, 0), Vector2i(4, 0), Vector2i(6, 0)]
 
@@ -180,7 +181,7 @@ var sound_players = {}
 func _ready():
 	rng.randomize()
 	DisplayServer.window_set_min_size(Vector2i(960, 540))
-	font = get_theme_default_font()
+	font = _load_ui_font()
 	font_size = get_theme_default_font_size()
 	_load_title_art()
 	_load_meta()
@@ -1729,6 +1730,14 @@ func _load_title_art():
 		title_art = ImageTexture.create_from_image(image)
 	else:
 		title_art = null
+
+
+func _load_ui_font():
+	var loaded = FontFile.new()
+	var err = loaded.load_dynamic_font(UI_FONT_PATH)
+	if err == OK:
+		return loaded
+	return get_theme_default_font()
 
 
 func _setup_audio():

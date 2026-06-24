@@ -6,4 +6,6 @@ docs/*.import
 *.translation
 *.tmp
 *.log
+extension_api.json
+gdextension_interface.h
 .DS_Store
