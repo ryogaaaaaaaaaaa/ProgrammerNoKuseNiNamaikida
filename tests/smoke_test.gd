@@ -13,6 +13,12 @@ func _run():
 
 	main.muted = true
 	main._start_run()
+	if not str(main.font.get_font_name()).contains("DotGothic"):
+		push_error("Japanese UI font was not loaded: %s" % main.font.get_font_name())
+		main.queue_free()
+		await process_frame
+		quit(1)
+		return
 	for i in range(240):
 		if main.state == "playing" and main.resolving:
 			main.resolve_timer = -1.0

@@ -1733,6 +1733,9 @@ func _load_title_art():
 
 
 func _load_ui_font():
+	var imported = load(UI_FONT_PATH)
+	if imported is Font:
+		return imported
 	var loaded = FontFile.new()
 	var err = loaded.load_dynamic_font(UI_FONT_PATH)
 	if err == OK:
