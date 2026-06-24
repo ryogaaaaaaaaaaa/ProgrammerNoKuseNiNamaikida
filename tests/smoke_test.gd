@@ -13,8 +13,12 @@ func _run():
 
 	main.muted = true
 	main._start_run()
-	for i in range(96):
-		if main.state == "playing":
+	for i in range(240):
+		if main.state == "playing" and main.resolving:
+			main.resolve_timer = -1.0
+			await process_frame
+			continue
+		elif main.state == "playing":
 			_play_first_usable_card(main)
 			main._end_turn()
 		elif main.state == "reward":
@@ -23,7 +27,8 @@ func _run():
 			main._remove_deck_card(0)
 		elif main.state == "victory" or main.state == "game_over":
 			break
-		await process_frame
+		for frame in range(6):
+			await process_frame
 
 	if main.state == "title" or main.state == "help":
 		push_error("Smoke test ended in a menu state.")
