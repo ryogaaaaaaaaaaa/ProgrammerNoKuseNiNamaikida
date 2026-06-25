@@ -19,22 +19,14 @@ func _run():
 		await process_frame
 		quit(1)
 		return
-	for i in range(240):
-		if main.state == "playing" and main.resolving:
-			main.resolve_timer = -1.0
-			await process_frame
-			continue
-		elif main.state == "playing":
-			_play_first_usable_card(main)
-			main._end_turn()
-		elif main.state == "reward":
-			main._take_reward(0)
-		elif main.state == "remove_card":
-			main._remove_deck_card(0)
-		elif main.state == "victory" or main.state == "game_over":
+
+	for i in range(900):
+		if main.state != "playing":
 			break
-		for frame in range(6):
-			await process_frame
+		if i % 45 == 0:
+			_enqueue_reasonable_command(main)
+		main._update_game(0.20)
+		await process_frame
 
 	if main.state == "title" or main.state == "help":
 		push_error("Smoke test ended in a menu state.")
@@ -43,24 +35,46 @@ func _run():
 		quit(1)
 		return
 
-	print("Smoke OK: state=%s day=%d score=%d integrity=%d" % [main.state, main.day, main.score, main.integrity])
+	if main.services.is_empty() or main.LOADOUT.is_empty():
+		push_error("MVP data was not initialized.")
+		main.queue_free()
+		await process_frame
+		quit(1)
+		return
+
+	print("Smoke OK: state=%s score=%d budget=%d incidents=%d actions=%d" % [
+		main.state,
+		main.score,
+		int(main.error_budget),
+		main.active_incidents.size(),
+		main.actions_completed
+	])
 	main.queue_free()
 	await process_frame
 	quit(0)
 
 
-func _play_first_usable_card(main):
-	for i in range(main.hand.size()):
-		var card_id = main.hand[i]
-		var card = main.CARD_DB[card_id]
-		if main.sap < int(card["cost"]):
-			continue
-		if card["target"] == "none":
-			main._play_card(i, Vector2i(-1, -1))
-			return
-		for y in range(main.GRID_H):
-			for x in range(main.GRID_W):
-				var p = Vector2i(x, y)
-				if main._is_valid_target(card_id, p):
-					main._play_card(i, p)
-					return
+func _enqueue_reasonable_command(main):
+	var inc = main._selected_incident()
+	if inc.is_empty() and not main.active_incidents.is_empty():
+		var best_i = 0
+		var best_severity = -1.0
+		for i in range(main.active_incidents.size()):
+			var severity = float(main.active_incidents[i]["severity"])
+			if severity > best_severity:
+				best_severity = severity
+				best_i = i
+		main.selected_service = int(main.active_incidents[best_i]["service"])
+		inc = main.active_incidents[best_i]
+	if inc.is_empty():
+		main._enqueue_command("log")
+		return
+	var confidence = float(inc.get("confidence", 0.0))
+	if confidence < 70.0:
+		main._enqueue_command("log")
+		return
+	var fix = str(inc.get("fix", "restart"))
+	if main.RUNBOOKS.has(fix):
+		main._enqueue_command(fix)
+	else:
+		main._enqueue_command("restart")

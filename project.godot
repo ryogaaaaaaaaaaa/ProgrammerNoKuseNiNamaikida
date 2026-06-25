@@ -6,8 +6,8 @@ config_version=5
 
 [application]
 
-config/name="記憶庭園の番人"
-config/description="眠る巨大樹の記憶庭園を守る、逆ローグライク・デッキ構築ゲーム。"
+config/name="Alert Stack"
+config/description="本番環境を守る、リアルタイム・インシデント対応ローグライト。"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://assets/icon.svg"
@@ -25,4 +25,3 @@ window/stretch/aspect="expand"
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
-
