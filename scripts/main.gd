@@ -394,7 +394,7 @@ func _spawn_incident(opening):
 	incident_seq += 1
 	active_incidents.append(incident)
 	_push_alert_for_incident(incident, "P2" if severity < 32.0 else "P1")
-	selected_alert = alert_queue.size() - 1
+	selected_alert = 0
 	selected_service = service_index
 	services[service_index]["pulse"] = 1.0
 	_add_log("%sで%sを検知。" % [services[service_index]["name"], template["signal"]])
@@ -729,6 +729,10 @@ func _validate_selection():
 		selected_service = 2
 	if selected_alert >= alert_queue.size():
 		selected_alert = alert_queue.size() - 1
+	if selected_alert < 0 and not active_incidents.is_empty():
+		var focus = _most_dangerous_incident_index()
+		if focus != -1:
+			selected_service = int(active_incidents[focus]["service"])
 
 
 func _incident_index_by_id(id):
@@ -736,6 +740,41 @@ func _incident_index_by_id(id):
 		if int(active_incidents[i]["id"]) == id:
 			return i
 	return -1
+
+
+func _most_dangerous_incident_index():
+	var best = -1
+	var best_score = -9999.0
+	for i in range(active_incidents.size()):
+		var inc = active_incidents[i]
+		var service = services[int(inc["service"])]
+		var score_value = float(inc["severity"]) + (100.0 - float(service["health"])) * 0.45 + float(service["critical"]) * 14.0
+		if score_value > best_score:
+			best_score = score_value
+			best = i
+	return best
+
+
+func _focus_incident():
+	var selected = _selected_incident()
+	if not selected.is_empty():
+		return selected
+	var focus = _most_dangerous_incident_index()
+	if focus != -1:
+		return active_incidents[focus]
+	return {}
+
+
+func _recommended_runbook_id():
+	var inc = _focus_incident()
+	if inc.is_empty():
+		return "log"
+	if float(inc.get("confidence", 0.0)) < 70.0:
+		return "log"
+	var fix = str(inc.get("fix", "restart"))
+	if RUNBOOKS.has(fix):
+		return fix
+	return "restart"
 
 
 func _service_has_incident(service_index):
@@ -814,8 +853,9 @@ func _draw_help():
 	var y = panel.position.y + 112
 	var lines = [
 		"あなたはインシデントコマンダーです。ゲームはリアルタイムで進み、Spaceは倍速であって進行条件ではありません。",
-		"左のAlert Queueからアラートを選ぶか、中央のService Graphで対象サービスを選びます。",
-		"下のRunbookをクリックするとResponse Queueへ投入。処理は順番に実行され、完了まで数秒かかります。",
+		"まず右の「いま見るところ」を見ます。今いちばん危ないサービスと、次に押す候補が出ます。",
+		"下の光っているRunbookをクリックするとResponse Queueへ投入。処理は順番に実行され、完了まで数秒かかります。",
+		"慣れてきたら中央のService Graphをクリックして、別のサービスへ対応対象を切り替えます。",
 		"割り込みをONにすると次のRunbookを先頭に積めます。ただしStack Pressureと疲労が増え、後で苦しくなります。",
 		"Log Focusで原因確度を上げ、Rate Limit / Isolate / Rollback / Restartを状況に合わせて使います。",
 		"障害は依存グラフを上から下へ伝播します。全部を救うより、何を遅らせ、何を諦めるかが勝負です。",
@@ -834,16 +874,14 @@ func _draw_play():
 	draw_set_transform(shake, 0.0, Vector2.ONE)
 	_draw_top_bar(view)
 	var top = 72.0
-	var bottom_h = 150.0
-	var left_w = clamp(view.x * 0.22, 238.0, 288.0)
-	var right_w = clamp(view.x * 0.27, 300.0, 358.0)
+	var bottom_h = 154.0
+	var right_w = clamp(view.x * 0.32, 340.0, 430.0)
 	var gap = 18.0
-	var graph_w = view.x - left_w - right_w - gap * 4.0
+	var graph_w = view.x - right_w - gap * 3.0
 	var graph_h = view.y - top - bottom_h - 34.0
-	graph_rect = Rect2(Vector2(left_w + gap * 2.0, top), Vector2(graph_w, graph_h))
-	_draw_alert_panel(Rect2(Vector2(gap, top), Vector2(left_w, graph_h)))
+	graph_rect = Rect2(Vector2(gap, top), Vector2(graph_w, graph_h))
 	_draw_graph_panel(graph_rect)
-	_draw_response_panel(Rect2(Vector2(graph_rect.end.x + gap, top), Vector2(right_w, graph_h)))
+	_draw_focus_panel(Rect2(Vector2(graph_rect.end.x + gap, top), Vector2(right_w, graph_h)))
 	_draw_runbooks(Rect2(Vector2(gap, view.y - bottom_h + 14.0), Vector2(view.x - gap * 2.0, bottom_h - 28.0)))
 	_draw_effects()
 	_draw_hover()
@@ -860,8 +898,7 @@ func _draw_top_bar(view):
 	_draw_status("SHIFT", _time_label(time_left), Vector2(184, 13), C_CYAN)
 	_draw_status("ERROR BUDGET", "%d%%" % int(round(error_budget)), Vector2(316, 13), C_GREEN if error_budget > 45.0 else C_RED)
 	_draw_status("INCIDENTS", "%d" % active_incidents.size(), Vector2(500, 13), C_AMBER)
-	_draw_status("FATIGUE", "%d" % int(round(fatigue)), Vector2(626, 13), C_PURPLE)
-	_draw_status("STACK", "%.1f" % stack_pressure, Vector2(744, 13), C_RED if stack_pressure > 3.0 else C_DIM)
+	_draw_status("QUEUE", "%d/%d" % [response_queue.size() + (0 if current_action.is_empty() else 1), MAX_QUEUE + 1], Vector2(626, 13), C_PURPLE)
 	_draw_button("speed", Rect2(view.x - 318, 12, 80, 34), "x2 " + ("ON" if fast_forward else "OFF"), false)
 	_draw_button("pause", Rect2(view.x - 230, 12, 70, 34), "PAUSE" if not paused else "PLAY", false)
 	_draw_button("mute", Rect2(view.x - 152, 12, 64, 34), "音" + ("OFF" if muted else "ON"), false)
@@ -1011,10 +1048,79 @@ func _draw_response_panel(rect):
 		log_y += 17
 
 
+func _draw_focus_panel(rect):
+	_panel(rect, "いま見るところ")
+	var inc = _focus_incident()
+	var y = rect.position.y + 48
+	if inc.is_empty():
+		_draw_text("大きな障害なし", rect.position + Vector2(18, y + 8), 24, C_GREEN)
+		_draw_wrapped_text("次のアラートが来るまで、キューを空けて待つ。迷ったらログを絞る。", rect.position + Vector2(18, y + 44), rect.size.x - 36, 15, C_DIM, 22)
+	else:
+		var service_index = int(inc["service"])
+		var service = services[service_index]
+		selected_service = service_index
+		var severity = float(inc["severity"])
+		var severity_color = _danger_color(severity / 100.0)
+		_draw_text("FOCUS INCIDENT", rect.position + Vector2(18, y), 12, C_DIM)
+		y += 29
+		_draw_text(service["name"], rect.position + Vector2(18, y), 31, C_TEXT)
+		_draw_text(str(inc["signal"]), rect.position + Vector2(18, y + 28), 14, C_DIM)
+		var sev_rect = Rect2(rect.position + Vector2(18, y + 48), Vector2(rect.size.x - 36, 10))
+		draw_rect(sev_rect, Color(0.11, 0.13, 0.15), true)
+		draw_rect(Rect2(sev_rect.position, Vector2(sev_rect.size.x * clamp(severity / 100.0, 0.0, 1.0), sev_rect.size.y)), severity_color, true)
+		_draw_text("Severity %d%%" % int(round(severity)), rect.position + Vector2(18, y + 76), 15, severity_color)
+		_draw_text("Confidence %d%%" % int(round(float(inc["confidence"]))), rect.position + Vector2(150, y + 76), 15, C_CYAN)
+		y += 104
+		var rec = _recommended_runbook_id()
+		var rec_data = RUNBOOKS[rec]
+		var rec_box = Rect2(rect.position + Vector2(18, y), Vector2(rect.size.x - 36, 72))
+		draw_rect(rec_box, Color(0.080, 0.092, 0.100, 0.98), true)
+		draw_rect(rec_box, rec_data["color"], false, 2.0)
+		draw_rect(Rect2(rec_box.position, Vector2(6, rec_box.size.y)), rec_data["color"], true)
+		_draw_text("次に押す候補", rec_box.position + Vector2(16, 24), 13, C_DIM)
+		_draw_text(rec_data["jp"], rec_box.position + Vector2(16, 54), 23, C_TEXT)
+		_draw_text(rec_data["return"], rec_box.position + Vector2(172, 54), 13, C_DIM)
+		y += 88
+	_draw_queue_summary(rect, y)
+	_draw_button("interrupt", Rect2(rect.position.x + 18, rect.end.y - 82, rect.size.x - 36, 38), "割り込み " + ("ON" if interrupt_mode else "OFF"), interrupt_mode)
+	_draw_text("疲労 %d   Stack %.1f" % [int(round(fatigue)), stack_pressure], rect.position + Vector2(20, rect.end.y - 22), 14, C_DIM)
+
+
+func _draw_queue_summary(rect, y):
+	_draw_text("対応キュー", rect.position + Vector2(18, y), 15, C_TEXT)
+	y += 20
+	if current_action.is_empty() and response_queue.is_empty():
+		_draw_text("空き。今ならすぐ積める。", rect.position + Vector2(18, y + 18), 14, C_DIM)
+		return
+	if not current_action.is_empty():
+		var box = Rect2(rect.position + Vector2(18, y), Vector2(rect.size.x - 36, 38))
+		draw_rect(box, Color(0.07, 0.085, 0.095, 0.96), true)
+		draw_rect(box, current_action["color"], false, 1.4)
+		_draw_text("実行中: " + str(current_action["jp"]), box.position + Vector2(12, 25), 14, C_TEXT)
+		var ratio = 1.0 - clamp(float(current_action["remaining"]) / float(current_action["duration"]), 0.0, 1.0)
+		draw_rect(Rect2(box.position + Vector2(12, 31), Vector2((box.size.x - 24) * ratio, 4)), current_action["color"], true)
+		y += 46
+	for i in range(min(response_queue.size(), 2)):
+		var action = response_queue[i]
+		var item = Rect2(rect.position + Vector2(18, y + i * 29), Vector2(rect.size.x - 36, 23))
+		draw_rect(item, Color(0.052, 0.064, 0.074, 0.90), true)
+		draw_rect(Rect2(item.position, Vector2(4, item.size.y)), action["color"], true)
+		_draw_text("%d. %s -> %s" % [i + 1, action["jp"], services[int(action["service"])]["name"]], item.position + Vector2(10, 18), 12, C_DIM)
+
+
+func _draw_recent_log(pos, max_width):
+	if log_lines.is_empty():
+		return
+	var line = log_lines[log_lines.size() - 1]
+	_draw_wrapped_text(line, pos, max_width, 12, C_MUTED, 16)
+
+
 func _draw_runbooks(rect):
 	draw_rect(rect, Color(0.024, 0.031, 0.038, 0.96), true)
 	draw_rect(rect, C_LINE, false, 1.0)
+	var recommended = _recommended_runbook_id()
 	_draw_text("RUNBOOK COMMANDS", rect.position + Vector2(16, 24), 14, C_DIM)
+	_draw_text("光っている候補を押せば、とりあえず前に進む", rect.position + Vector2(170, 24), 13, C_MUTED)
 	var card_gap = 10.0
 	var card_w = (rect.size.x - 32.0 - card_gap * (LOADOUT.size() - 1)) / LOADOUT.size()
 	var card_h = rect.size.y - 42.0
@@ -1024,10 +1130,16 @@ func _draw_runbooks(rect):
 		var item = Rect2(rect.position + Vector2(16 + i * (card_w + card_gap), 34), Vector2(card_w, card_h))
 		runbook_rects.append(item)
 		var can_queue = response_queue.size() < MAX_QUEUE or interrupt_mode
+		var is_recommended = id == recommended
 		var base = Color(0.050, 0.068, 0.078) if can_queue else Color(0.032, 0.038, 0.043)
+		if is_recommended and can_queue:
+			base = base.lightened(0.10)
 		draw_rect(item, base, true)
-		draw_rect(item, data["color"] if interrupt_mode else Color(0.18, 0.25, 0.28, 0.92), false, 1.5)
+		draw_rect(item, data["color"] if (interrupt_mode or is_recommended) else Color(0.18, 0.25, 0.28, 0.92), false, 2.4 if is_recommended else 1.5)
 		draw_rect(Rect2(item.position, Vector2(item.size.x, 5)), data["color"], true)
+		if is_recommended:
+			draw_rect(Rect2(item.position + Vector2(8, 9), Vector2(46, 17)), data["color"], true)
+			_draw_text("NEXT", item.position + Vector2(13, 22), 10, Color(0.025, 0.033, 0.040))
 		_draw_text(data["jp"], item.position + Vector2(12, 28), 16, C_TEXT if can_queue else C_MUTED)
 		_draw_text(data["name"], item.position + Vector2(12, 48), 10, C_DIM)
 		_draw_text("RET: " + data["return"], item.position + Vector2(12, item.size.y - 31), 11, C_DIM)
